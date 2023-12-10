@@ -1,18 +1,13 @@
 import streamlit as st
 from bs4 import BeautifulSoup
 import requests
-import openai
-from urllib.parse import urljoin
-
-# Initialize OpenAI with API key from Streamlit's secrets
-openai.api_key = st.secrets["openai_api_key"]
+from urllib.parse import urljoin, urlparse
 
 # Define headers with a User-Agent to mimic a browser
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36"
 }
 
-# Function to safely fetch a URL's content
 def request_url(url):
     try:
         response = requests.get(url, headers=HEADERS)
@@ -22,62 +17,51 @@ def request_url(url):
         st.error(f"Error fetching URL: {e}")
         return None
 
-# Function to get SEO insights for images using OpenAI's updated API
-def get_gpt_image_insights(prompt):
-    try:
-        response = openai.Completion.create(
-            model="gpt-3.5-turbo",
-            prompt=prompt,
-            max_tokens=100
-        )
-        return response.choices[0].text.strip()
-    except openai.OpenAIError as e:
-        st.error(f"OpenAI API returned an error: {e}")
-        return ""
-
-# Main image audit function
 def ImageAudit(url):
     response = request_url(url)
     if not response:
         return {"error": "Failed to retrieve content for image audit"}
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    img_elements = soup.find_all('img')
+    img_elements = [img for img in soup.find_all('img') if img.get('src')]
 
-    audit_results = []
+    missing_alt = []
+    broken_imgs = []
+
+    base_domain = urlparse(url).netloc
 
     for img in img_elements:
-        img_url = urljoin(url, img.get('src'))
-        alt_text = img.get('alt')
-        file_name = img_url.split('/')[-1]
+        # Check for missing alt attributes
+        if not img.get('alt'):
+            missing_alt.append(urljoin(url, img['src']))
 
-        # Assess alt text
-        if not alt_text:
-            alt_text_insight = get_gpt_image_insights(f"Suggest alt text for image: {file_name}")
-            audit_results.append((img_url, "Missing alt text", alt_text_insight))
-        else:
-            improved_alt_text = get_gpt_image_insights(f"Improve alt text: {alt_text}")
-            audit_results.append((img_url, "Existing alt text", improved_alt_text))
+        # Check for internal broken images
+        img_src = urljoin(url, img['src'])
+        if base_domain in urlparse(img_src).netloc:
+            img_response = request_url(img_src)
+            if not img_response:
+                broken_imgs.append(img_src)
 
-        # Assess file name
-        if '-' not in file_name and '_' not in file_name:
-            improved_file_name = get_gpt_image_insights(f"Suggest a more descriptive file name for: {file_name}")
-            audit_results.append((img_url, "Non-descriptive file name", improved_file_name))
+    return {
+        "missing_alt": (missing_alt, "Images should have alt attributes for accessibility and SEO."),
+        "broken_imgs": (broken_imgs, "Broken images can lead to poor user experience.")
+    }
 
-    return audit_results
-
-# Streamlit app layout
-st.title("Automated One-Click Image SEO Audit")
-url = st.text_input("Enter the URL of the page for image audit")
+st.title("Image Audit Tool")
+url = st.text_input("Enter URL of the page to audit")
 
 if url:
-    with st.spinner("Analyzing images..."):
-        audit_results = ImageAudit(url)
-        for img_url, issue_type, recommendation in audit_results:
-            st.write(f"Image: {img_url}")
-            st.write(f"Issue: {issue_type}")
-            st.write(f"Recommendation: {recommendation}")
+    with st.spinner("Auditing Images..."):
+        image_audit_results = ImageAudit(url)
+        for key, value in image_audit_results.items():
+            st.write(f"**{value[1]}**")
+            for img in value[0]:
+                st.write(f"Image: {img}")
             st.write("---")
 
-# Add footer
-st.markdown("#### Made by [Your Name](https://yourwebsite.com)")
+st.markdown("----")
+
+# Add the "Made by [Your Name]" in the sidebar with a link
+st.sidebar.markdown(
+    "#### Made by [Your Name](https://yourwebsite.com)"
+)
