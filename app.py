@@ -2,7 +2,7 @@ import streamlit as st
 from bs4 import BeautifulSoup
 import requests
 import openai
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 # Initialize OpenAI with API key from Streamlit's secrets
 openai.api_key = st.secrets["openai_api_key"]
@@ -22,17 +22,15 @@ def request_url(url):
         st.error(f"Error fetching URL: {e}")
         return None
 
-# GPT-3 based function to get SEO insights for images
+# Function to get SEO insights for images using OpenAI's updated API
 def get_gpt_image_insights(prompt):
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.Completion.create(
             model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are an SEO expert specialized in image optimization."},
-                {"role": "user", "content": prompt}
-            ]
+            prompt=prompt,
+            max_tokens=100
         )
-        return response.choices[0].message['content'].strip()
+        return response.choices[0].text.strip()
     except openai.OpenAIError as e:
         st.error(f"OpenAI API returned an error: {e}")
         return ""
@@ -51,7 +49,7 @@ def ImageAudit(url):
     for img in img_elements:
         img_url = urljoin(url, img.get('src'))
         alt_text = img.get('alt')
-        file_name = urlparse(img_url).path.split('/')[-1]
+        file_name = img_url.split('/')[-1]
 
         # Assess alt text
         if not alt_text:
